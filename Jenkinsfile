@@ -33,16 +33,12 @@ pipeline {
                     def imageName = sh(script: 'cat imageName.txt', returnStdout: true).trim()
 
                     echo "Starting test container for ${imageName} in TEST_MODE..."
-                    
-                    // --- THIS IS NOW CORRECTED ---
-                    // 1. Add '-e TEST_MODE=True' to set the environment variable
+                    // This command runs on localhost, so proxy is not an issue here
                     sh "docker run -d --name flask-test -e TEST_MODE=True -p 8000:5000 ${imageName}"
                     
                     echo "Waiting 10s for app to start..."
                     sh 'sleep 10' 
                     
-                    // --- THIS IS NOW CORRECTED ---
-                    // 1. Test the new '/' health check route
                     echo "Testing http://localhost:8000/ ..."
                     sh 'curl -f http://localhost:8000/'
                     echo "Test successful!"
@@ -52,7 +48,6 @@ pipeline {
                 always {
                     echo "--- Grabbing container logs for debugging ---"
                     sh 'docker logs flask-test || true' 
-                    
                     echo "--- Stopping and removing test container ---"
                     sh 'docker stop flask-test || true'
                     sh 'docker rm flask-test || true'
@@ -67,11 +62,22 @@ pipeline {
                     def imageName = sh(script: 'cat imageName.txt', returnStdout: true).trim()
 
                     withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                        
                         echo "Logging in to Docker Hub as $DOCKER_USER..."
                         sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
                         
-                        echo "Pushing ${imageName} to Docker Hub..."
-                        docker.image(imageName).push()
+                        // --- THIS IS THE FIX ---
+                        // We explicitly set proxy variables to empty strings to override them
+                        echo "Pushing ${imageName} to Docker Hub (overriding proxy)..."
+                        withEnv([
+                            'http_proxy=',
+                            'https_proxy=',
+                            'HTTP_PROXY=',
+                            'HTTPS_PROXY='
+                        ]) {
+                            docker.image(imageName).push()
+                        }
+                        // --- END OF FIX ---
                         
                         echo "Logging out..."
                         sh 'docker logout'
@@ -88,11 +94,19 @@ pipeline {
                     
                     echo "Deploying new 'flask-prod' container to http://localhost:8080"
                     
-                    // This deployment will use the REAL MySQL database
-                    // because we are NOT setting TEST_MODE=True
-                    sh 'docker stop flask-prod || true'
-                    sh 'docker rm flask-prod || true'
-                    sh "docker run -d --name flask-prod -p 8080:5000 ${imageName}"
+                    // --- APPLYING FIX HERE TOO ---
+                    // This 'docker run' pulls the image, so it also needs the proxy override
+                    withEnv([
+                        'http_proxy=',
+                        'https_proxy=',
+                        'HTTP_PROXY=',
+                        'HTTPS_PROXY='
+                    ]) {
+                        sh 'docker stop flask-prod || true'
+                        sh 'docker rm flask-prod || true'
+                        sh "docker run -d --name flask-prod -p 8080:5000 ${imageName}"
+                    }
+                    // --- END OF FIX ---
                 }
             }
         }
