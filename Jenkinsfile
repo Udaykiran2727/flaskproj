@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         PATH = "/usr/local/bin:$PATH"
-        DOCKER_IMAGE_NAME = "udaykiran2727/flaskproj"
+        DOCKER_IMAGE_NAME = "udaykiran03/flaskproj"
     }
 
     stages {
