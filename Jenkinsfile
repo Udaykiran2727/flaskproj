@@ -2,18 +2,13 @@ pipeline {
     agent any
 
     environment {
-        // Ensures 'docker' is found
         PATH = "/usr/local/bin:$PATH"
-        
-        // --- THIS IS NOW CORRECTED ---
         DOCKER_IMAGE_NAME = "udaykiran2727/flaskproj"
     }
 
     stages {
         stage('1. Checkout Code') {
             steps {
-                // This 'checkout scm' is automatic when using 'Pipeline from SCM',
-                // but explicitly adding it here is good practice.
                 git url: 'https://github.com/Udaykiran2727/flaskproj.git', branch: 'main'
             }
         }
@@ -25,7 +20,6 @@ pipeline {
                     echo "Building ${imageName}..."
                     docker.build(imageName, ".")
                     
-                    // Stash the image name for later stages
                     sh "echo ${imageName} > imageName.txt"
                     stash name: 'imageNameFile', includes: 'imageName.txt'
                 }
@@ -38,21 +32,28 @@ pipeline {
                     unstash 'imageNameFile'
                     def imageName = sh(script: 'cat imageName.txt', returnStdout: true).trim()
 
-                    echo "Starting test container for ${imageName}..."
+                    echo "Starting test container for ${imageName} in TEST_MODE..."
                     
-                    // --- THIS IS NOW CORRECTED (using double quotes) ---
-                    sh "docker run -d --name flask-test -p 8000:5000 ${imageName}"
+                    // --- THIS IS NOW CORRECTED ---
+                    // 1. Add '-e TEST_MODE=True' to set the environment variable
+                    sh "docker run -d --name flask-test -e TEST_MODE=True -p 8000:5000 ${imageName}"
                     
+                    echo "Waiting 10s for app to start..."
                     sh 'sleep 10' 
                     
-                    echo "Testing http://localhost:8000 ..."
+                    // --- THIS IS NOW CORRECTED ---
+                    // 1. Test the new '/' health check route
+                    echo "Testing http://localhost:8000/ ..."
                     sh 'curl -f http://localhost:8000/'
                     echo "Test successful!"
                 }
             }
             post {
                 always {
-                    echo "Stopping and removing test container..."
+                    echo "--- Grabbing container logs for debugging ---"
+                    sh 'docker logs flask-test || true' 
+                    
+                    echo "--- Stopping and removing test container ---"
                     sh 'docker stop flask-test || true'
                     sh 'docker rm flask-test || true'
                 }
@@ -65,9 +66,7 @@ pipeline {
                     unstash 'imageNameFile'
                     def imageName = sh(script: 'cat imageName.txt', returnStdout: true).trim()
 
-                    // Use the Credential ID 'dockerhub-creds'
                     withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        
                         echo "Logging in to Docker Hub as $DOCKER_USER..."
                         sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
                         
@@ -89,10 +88,10 @@ pipeline {
                     
                     echo "Deploying new 'flask-prod' container to http://localhost:8080"
                     
+                    // This deployment will use the REAL MySQL database
+                    // because we are NOT setting TEST_MODE=True
                     sh 'docker stop flask-prod || true'
                     sh 'docker rm flask-prod || true'
-                    
-                    // --- THIS IS NOW CORRECTED (using double quotes) ---
                     sh "docker run -d --name flask-prod -p 8080:5000 ${imageName}"
                 }
             }
