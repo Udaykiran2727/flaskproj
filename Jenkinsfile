@@ -71,7 +71,7 @@ pipeline {
                         sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
                         
                         echo "Pushing ${imageName} to Docker Hub..."
-                        docker.push(imageName)
+                        docker.image(imageName).push()
                         
                         echo "Logging out..."
                         sh 'docker logout'
